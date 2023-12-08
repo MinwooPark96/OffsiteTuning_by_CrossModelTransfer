@@ -113,7 +113,7 @@ class PromptT5(nn.Module):
         elif mode == 'valid':
 
             output = self.encoder.generate(input_ids=data["inputx"], num_beams=config.getint("eval","num_beams"), output_scores=True, return_dict_in_generate=True, min_length=config.getint("eval","min_length"), max_length=config.getint("eval","max_length"))
-            print(output)
+            # print(output)
             # print(output,data_name)
             
             if "squad" in data_name or "nq_open" in data_name or "multi_news" in data_name or "samsum" in data_name:
