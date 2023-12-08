@@ -4,15 +4,14 @@
 # T5: T5Small, T5 (T5Base), T5Large
 
 
-gpus="4"
+gpus="3"
 
-for DATASET in imdb sst2 laptop restaurant mnli qnli snli qqp mrpc
+for DATASET in imdb sst2 laptop restaurant movierationales tweetevalsentiment mnli qnli snli ethicsdeontology ethicsjustice qqp mrpc
 do
     CUDA_VISIBLE_DEVICES=$gpus python3 valid.py \
         --config config/valid_configs_Roberta_Base/${DATASET}.config \
         --gpu $gpus \
         --prompt_emb ${DATASET}PromptBert\
-        --seed 28 \
         --projector projector_hub/15_model_cross_0.8896.pkl
 done 
 
