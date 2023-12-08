@@ -18,6 +18,7 @@
 mkdir PLM
 mkdir PLM/BertMediumForMaskedLM
 mkdir PLM/BertForMaskedLM
+mkdir PLM/BertLargeForMaskedLM
 
 mkdir PLM/RobertaForMaskedLM
 mkdir PLM/RobertaLargeForMaskedLM
@@ -42,16 +43,18 @@ gpus="0,1,2,3,4,5"
 # TARGET_MODEL="RobertaLarge"
 #--config config/crossPrompt${TARGET_MODEL}_nli_100.config \
 
-# PROMPT_EMB="sst2PromptBert"
+# PROMPT_EMB="sst2PromptT5"
 
 NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=$gpus torchrun --nnodes 1 --nproc-per-node 6 train_cross.py \
     --config config/develop_for_MTL.config \
     --gpu $gpus \
-    --source_model Bert\
-    # --seed 28\
-        
+    --source_model T5Small\
     # --prompt_emb ${PROMPT_EMB}\
 
+    
+    # --seed 28\
+        
+    
     
     
     

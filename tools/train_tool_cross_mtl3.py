@@ -147,9 +147,6 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
     exp_lr_scheduler.step(trained_epoch)
     
-    
-    source_encoder = load_model(config,target_model=False).to("cuda")
-    target_encoder = load_model(config,target_model=True).to("cuda")
         
     for epoch_num in range(trained_epoch, epoch):
         
@@ -191,21 +188,17 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         output_info = ""
         step = -1
         
-        distanceList = len(parameters['train_dataset'])*[0]
-        distance_loss = torch.nn.MSELoss()
-        total_distance = 0                     
-        
         #각 batch 에 대하여 
         for step, (dataloader_1, dataloader_2, dataloader_3) in enumerate(datasloader_zipped):
             # tensor to cuda
             for dataloader in (dataloader_1, dataloader_2, dataloader_3): #datas = [source,target]
-                for dataset in dataloader:
-                    for key in dataset.keys():
-                        if isinstance(dataset[key], torch.Tensor):
-                            if len(gpu_list) > 0:
-                                dataset[key] = Variable(dataset[key].cuda())
-                            else:
-                                dataset[key] = Variable(dataset[key])
+                dataset = dataloader[1] #only using target
+                for key in dataset.keys():
+                    if isinstance(dataset[key], torch.Tensor):
+                        if len(gpu_list) > 0:
+                            dataset[key] = Variable(dataset[key].cuda())
+                        else:
+                            dataset[key] = Variable(dataset[key])
                 
             
             model_AE.zero_grad() 
@@ -222,37 +215,9 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                     loss, acc_result = results["loss"], results["acc_result"]
                     lossList[idx] = loss
                     
-                    # assert config.getboolean('projector','flatten') == False
                     
-                    # 16*231*768 
-                    
-                    with torch.no_grad():
-                        source_embedding = source_encoder.bert.embeddings(input_ids = source_dataset['inputx'])[:,100:,:]
-                        
-                        target_embedding = target_encoder.roberta.embeddings(input_ids = target_dataset['inputx'])[:,100:,:]
-                        
-                    if config.getboolean('projector','flatten'):
-                        source_module = source_embedding @ torch.transpose(source_embedding,1,2)
-                        target_module = target_embedding @ torch.transpose(target_embedding,1,2)
-                        lambda_ = 1e-5
-                        distance = torch.norm(source_module-target_module,p='fro')*lambda_
-                        # print(source_module.size())
-                    else :
-                        source_module = model_AE(source_embedding)
-                        target_module = target_embedding
-                        lambda_ = 0.05
-                        distance = distance_loss(source_module,target_module)*lambda_
-                        # lambda_ = 1 : loss 처음부터 터짐.
-                        # lambda_ = 0.1 : 나중에 터짐.
-                        # lambda_ = 0.01 : 나중에 터짐.
-                        # lambda_ = 0.05 : 나중에 터짐.
-                        
-                    distanceList[idx] = distance
-            
-            MTLoss = sum(lossList) + sum(distanceList)
-            # print(float(sum(distanceList)))
+            MTLoss = sum(lossList) 
             total_loss += float(MTLoss)
-            total_distance += float(sum(distanceList))
             
             MTLoss.backward()
             optimizer_AE.step()
@@ -353,9 +318,6 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
         
         if local_rank <=0 and not "T5" in config.get("target_model","model_base"):            
-            # print(source_embedding)
-            # print(target_embedding)
-            # float(sum(distanceList))
             
             if config.get("train","source_model"):
                 json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + config.get("train","source_model")+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
@@ -369,17 +331,15 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                 with open(json_path,'r',encoding='utf-8') as file:
                     train_valid_info = json.load(file)
                     
-            #total loss
-            train_valid_info["train_total_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
-            train_valid_info["valid_total_loss"][current_epoch] = round(float(valid_total_loss) / (step + 1),6)
+            #each epoch average loss
+            train_valid_info["train_average_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
+            train_valid_info["valid_average_loss"][current_epoch] = round(float(valid_total_loss),6)
             
-            #each epoch loss
+            #each epoch sample loss
             train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_epoch_loss) ,4)
             train_valid_info["valid_epoch_loss"][current_epoch] = round(float(sum(valid_epoch_loss_list)) ,4)
-            train_valid_info["distance_epoch_loss"][current_epoch] = float(sum(distanceList))
             
-            
-            #each epoch acc
+            #each epoch sample acc
             train_valid_info["train_epoch_acc"][current_epoch] = round(float(acc_result['right']/acc_result['total']),4)
             train_valid_info["valid_epoch_acc"][current_epoch] = round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4)
             
@@ -404,103 +364,3 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             torch.distributed.barrier()
 
 
-def load_model(config,target_model = True):
-    local_map = config.getboolean("train","local_map")
-    assert local_map == False
-    
-
-    
-    if target_model:    
-        model_name = config.get("target_model","model_base").lower() 
-    else :
-        model_name = config.get("train","source_model").lower()
-    
-    if "roberta" in model_name:
-        try:
-            if config.get("target_model","model_size").lower()=="large":
-                model = "roberta-large"
-                ckp = "PLM/RobertaLargeForMaskedLM"
-                hidden_size = 1024
-            else:
-                model = "roberta-base"
-                ckp = "PLM/RobertaForMaskedLM"
-                hidden_size = 768
-            
-        except:
-            model = "roberta-base"
-            ckp = "PLM/RobertaForMaskedLM"
-            hidden_size = 768
-    
-    elif "bert" in model_name:
-        try:
-            if config.get("target_model","model_size").lower()=="large":
-                model = "bert-large"
-                ckp = "PLM/BertLargeForMaskedLM"
-                hidden_size = 1024
-            elif config.get("target_model","model_size").lower()=="base":
-                model = "bert-base-uncased"
-                ckp = "PLM/BertForMaskedLM"
-                hidden_size = 768
-            elif config.get("target_model","model_size").lower()=="medium":
-                model = "prajjwal1/bert-medium"
-                ckp = "PLM/BertMediumForMaskedLM"
-                hidden_size = 512
-        except:
-            model = "bert-base-uncased"
-            ckp = "PLM/BertForMaskedLM"
-            hidden_size = 768
-    else:
-        print("load_model function error!")
-        exit()
-    
-    if "bert-medium" in model: 
-        model = "bert-medium"
-
-    plmconfig = AutoConfig.from_pretrained(model)
-    plmconfig.prompt_num = config.getint("prompt", "prompt_num")
-    plmconfig.prompt_len = config.getint("prompt", "prompt_len")
-
-    
-    if config.get("target_model","model_size").lower()=="large":
-        init_model_path = str(ckp)+"/"+"Prompt"+str(model.split("-")[0].capitalize())+"Large"+"_init_params"
-    
-    elif config.get("target_model","model_size").lower()=="medium":
-        init_model_path = str(ckp)+"/"+"Prompt"+str(model.split("-")[0].capitalize())+"Medium"+"_init_params"
-    
-    else:
-        init_model_path = str(ckp)+"/"+"Prompt"+str(model.split("-")[0].capitalize())+"_init_params"
-
-    if os.path.exists(init_model_path+"/pytorch_model.bin"):
-        if "roberta" in model_name:
-            from model.modelling_roberta import RobertaForMaskedLM
-            encoder = RobertaForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
-        elif "bert" in model_name:
-            from model.modelling_bert import BertForMaskedLM
-            encoder = BertForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
-        else:
-            exit()
-    else:
-        if "roberta" in model_name:
-            from model.modelling_roberta import RobertaForMaskedLM
-            encoder = RobertaForMaskedLM.from_pretrained(model, config=plmconfig)
-            os.mkdir(init_model_path)
-            torch.save(encoder.state_dict(), str(init_model_path)+"/pytorch_model.bin")
-            print("Save Done")
-            encoder = RobertaForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
-        elif "bert" in model_name:
-            from model.modelling_bert import BertForMaskedLM
-            encoder = BertForMaskedLM.from_pretrained(model, config=plmconfig)
-            os.mkdir(init_model_path)
-            torch.save(encoder.state_dict(), str(init_model_path)+"/pytorch_model.bin")
-            print("Save Done")
-            encoder = BertForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
-        else:
-            exit()
-    if config.getint('distributed','local_rank') <= 0:
-        if target_model :
-            print("load target model = <{}> for distance compute.".format(model))
-        else :
-            print("load source model = <{}> for distance compute.".format(model))
-            
-    return encoder
-    ##############

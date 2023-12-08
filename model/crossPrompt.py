@@ -49,7 +49,7 @@ class crossPrompt(nn.Module):
         elif "bert" in config.get("target_model","model_base").lower():
             try:
                 if config.get("target_model","model_size").lower()=="large":
-                    model = "bert-large"
+                    model = "bert-large-uncased"
                     ckp = "PLM/BertLargeForMaskedLM"
                     self.hidden_size = 1024
                 elif config.get("target_model","model_size").lower()=="base":
@@ -75,6 +75,8 @@ class crossPrompt(nn.Module):
             filename = "task_prompt_emb/"+config.get("train","prompt_emb")+"/task_prompt"
             
             self.task_specific_prompt_emb = torch.load(filename).to('cuda')
+            self.task_specific_prompt_emb = torch.unsqueeze(self.task_specific_prompt_emb,0)                                                        
+        
         else :
             if config.get('distributed','local_rank') <= 0:
                 print("will load source prompt <{}>in crossPrompt.py".format(config.get('train','source_model')))
@@ -136,6 +138,8 @@ class crossPrompt(nn.Module):
 
             filename = "task_prompt_emb/" + data_name + "Prompt" + config.get("train","source_model")+"/task_prompt"    
             self.task_specific_prompt_emb = torch.load(filename).to('cuda')
+            self.task_specific_prompt_emb = torch.unsqueeze(self.task_specific_prompt_emb,0)                                                        
+        
                 
         # if config.get("distributed",'local_rank')<=0:
         #     print("crossPrompt.py is running.. with data = <{}>".format(data_name))
@@ -152,7 +156,6 @@ class crossPrompt(nn.Module):
         else :
             batch_size = config.getint('eval',"batch_size")
         
-        self.task_specific_prompt_emb = torch.unsqueeze(self.task_specific_prompt_emb,0)                                                        
         task_specific_prompt_emb = self.task_specific_prompt_emb.repeat(batch_size,1,1) 
         
         model_AE = kwargs["AE"]

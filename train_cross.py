@@ -67,19 +67,19 @@ if __name__ == "__main__":
     configFilePath = args.config
     config = create_config(configFilePath)
 
-    #minwoo - prompt_emb or source_model
-    if args.prompt_emb:
-        logger.warning("This model do not support prompt_emb tuning. you have to set source_model arg instead.")        
+     #minwoo - prompt_emb or source_model
+    if args.prompt_emb and args.source_model :
+        logger.warning("set only one argument <prompt_emb> or <source_model>")        
         exit()
-    if not args.source_model:
-        logger.warning("set one argument <source_model>")        
+    elif (not args.prompt_emb) and (not args.source_model):
+        logger.warning("set at least one argument <prompt_emb> or <source_model>")        
         exit()
     
     config.set("train","prompt_emb",args.prompt_emb)
     config.set("train","source_model",args.source_model)
 
+    print("prompt_emb",config.get("train","prompt_emb"))
     print("source_model",config.get("train","source_model"))
-    
     
     use_gpu = True
     gpu_list = []
