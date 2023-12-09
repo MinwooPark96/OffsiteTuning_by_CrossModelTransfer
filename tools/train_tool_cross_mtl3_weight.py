@@ -23,6 +23,8 @@ from model.modelling_bert import BertEmbeddings
 from model.modeling_t5 import T5EncoderModel
 from transformers import AutoConfig,AutoModelForMaskedLM,AutoTokenizer
 
+import copy
+
 #minwoo
 import json
 from collections import defaultdict
@@ -126,9 +128,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     else:    
         pass
     
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.01, weight_decay=0.0, correct_bias=True)
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
-    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.005, weight_decay=0.0, correct_bias=True)
+    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.1, correct_bias=True)
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -186,6 +187,22 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         MTLoss = 0
         lossList = len(parameters['train_dataset'])*[0]
         
+        weight_save = len(parameters['train_dataset'])*[0.0]
+        if epoch_num != 1:
+            if config.get("train","source_model"):
+                json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + config.get("train","source_model")+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
+            elif config.get("train","prompt_emb"):
+                json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + config.get("train","prompt_emb")+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
+            else :
+                json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + 'NAN'+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
+            
+            with open(json_path,'r',encoding='utf-8') as file:
+                train_valid_info = json.load(file)
+                weight_load = train_valid_info['weight'][str(epoch_num-1)]
+                
+        else :
+            weight_load = len(parameters['train_dataset'])*[1.0]
+        
         output_info = ""
         step = -1
         
@@ -216,9 +233,12 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                     loss, acc_result = results["loss"], results["acc_result"]
                     lossList[idx] = loss
                     
-                    
-            MTLoss = sum(lossList) 
+                    weight_save[idx] += loss
+            
+            batch_lossList = [lossList[idx]*weight_load[idx] /sum(weight_load) for idx in range(len(lossList))] 
+            MTLoss = sum(batch_lossList)
             total_loss += float(MTLoss)
+            
             
             MTLoss.backward()
             optimizer_AE.step()
@@ -270,7 +290,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         writer.add_scalar(config.get("output", "model_name") + "_train_epoch_total_loss", float(total_loss) / (step + 1), current_epoch)
         
         train_total_loss = float(total_loss)
-        train_epoch_loss = float(sum(lossList)) #last step loss in a epoch
+        train_epoch_loss = float(sum(batch_lossList)) #last step loss in a epoch
         
         
         if "T5" in config.get("target_model","model_base"):
@@ -343,6 +363,11 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             #each epoch sample acc
             train_valid_info["train_epoch_acc"][current_epoch] = round(float(acc_result['right']/acc_result['total']),4)
             train_valid_info["valid_epoch_acc"][current_epoch] = round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4)
+            
+            #weight
+            train_valid_info['weight'][int(epoch_num)]= len(parameters['train_dataset']) * [None]
+            for idx in range(len(parameters['train_dataset'])):
+                train_valid_info['weight'][epoch_num][idx] = float(weight_save[idx])/(step+1)
             
             train_data_list = config.get("data","train_dataset_type").split(',')
             valid_data_list = config.get("data","valid_dataset_type").split(',')

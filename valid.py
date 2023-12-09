@@ -47,6 +47,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--mode", type=str, default="valid")
     
+    parser.add_argument("--output_name", type=str, default=None)
+    
     args = parser.parse_args()
     configFilePath = args.config
     
@@ -57,6 +59,7 @@ if __name__ == "__main__":
     else :
         logger.warning("please set prompt_emb! e.g. SST2PromptBert")
         exit()
+    
     
     use_gpu = True
     gpu_list = []

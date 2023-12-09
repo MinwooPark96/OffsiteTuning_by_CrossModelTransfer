@@ -125,7 +125,10 @@ def valid(model, dataset, epoch, no_use_2, config, gpu_list, output_function, mo
 
         # print(data_name,round(float(acc_result['right']/acc_result['total']),4))
         
-        PATH = "valid_all"
+        if vars(kwargs)['output_name']:
+            PATH = vars(kwargs)['output_name']
+        else:
+            PATH = "valid_all"
         
         if os.path.exists(PATH):
             with open(PATH,'r',encoding='utf-8') as file:

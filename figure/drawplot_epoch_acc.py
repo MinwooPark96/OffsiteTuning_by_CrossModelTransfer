@@ -11,7 +11,6 @@ import json
 
 
 def drawplot_epoch_acc(length,json_name,nbins):
-
     os.makedirs(json_name,exist_ok=True)
 
     with open("./../result/"+json_name,'r',encoding='utf-8') as file:

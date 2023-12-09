@@ -1,19 +1,4 @@
 
-# gpus="0"
-
-# DATASET="laptop"
-
-# MODEL_PROMPT="Roberta-base"
-# SOURCE_MODEL="RobertaBase"
-# TARGET_MODEL="RobertaLarge"
-
-# CUDA_VISIBLE_DEVICES=$gpus python3 train_cross.py \
-#     --config config/crossPrompt${TARGET_MODEL}_${DATASET}_100.config \
-#     --gpu $gpus \
-#     --model_prompt ${MODEL_PROMPT}
-
-# mkdir RobertaForMaskedLM
-# mkdir RobertaLargeForMaskedLM
 
 mkdir PLM
 mkdir PLM/BertMediumForMaskedLM
@@ -32,29 +17,37 @@ mkdir PLM/T511BForMaskedLM
 gpus="0,1,2,3,4,5"
 
 
-# SOURCE_MODEL="RobertaBase"
 
-
-
-# TARGET_MODEL="Roberta"
-# --config config/crossPrompt${TARGET_MODEL}_${DATASET}_100.config \
-
-# MODEL_PROMPT="Roberta-base"
-# TARGET_MODEL="RobertaLarge"
-#--config config/crossPrompt${TARGET_MODEL}_nli_100.config \
 
 # PROMPT_EMB="sst2PromptT5"
 
 NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=$gpus torchrun --nnodes 1 --nproc-per-node 6 train_cross.py \
-    --config config/develop_for_MTL.config \
+    --config config/develop_for_MTL_sourceBert.config \
     --gpu $gpus \
-    --source_model Roberta\
+    --source_model Bert\
     # --prompt_emb ${PROMPT_EMB}\
 
     
     # --seed 28\
         
     
+NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=$gpus torchrun --nnodes 1 --nproc-per-node 6 train_cross.py \
+    --config config/develop_for_MTL_sourceRoberta.config \
+    --gpu $gpus \
+    --source_model Roberta\
+    # --prompt_emb ${PROMPT_EMB}\
+
+    
+    # --seed 28\
+
+NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=$gpus torchrun --nnodes 1 --nproc-per-node 6 train_cross.py \
+    --config config/develop_for_MTL_sourceT5.config \
+    --gpu $gpus \
+    --source_model T5\
+    # --prompt_emb ${PROMPT_EMB}\
+
+    
+    # --seed 28\
     
     
     

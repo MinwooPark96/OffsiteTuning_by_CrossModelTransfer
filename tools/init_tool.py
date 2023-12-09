@@ -142,7 +142,7 @@ def init_all(config, gpu_list, mode, *args, **params): #->dictionary
             
             if 'large' in model_size.lower():
                 prompt_emb = torch.rand(config.getint("prompt","prompt_num"),1024).to("cuda")
-            if "small" in model_size.lower():
+            elif "small" in model_size.lower():
                 prompt_emb = torch.rand(config.getint("prompt","prompt_num"),512).to("cuda")
             else:
                 prompt_emb = torch.rand(config.getint("prompt","prompt_num"),768).to("cuda")
