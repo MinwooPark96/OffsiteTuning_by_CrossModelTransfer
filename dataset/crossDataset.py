@@ -77,8 +77,45 @@ def pre_processing(data_name, mode,config):
             return pre_data_imdb(mode,config,"IMDB_s1")
         if "imdb_s2" == data_name:
             return pre_data_imdb(mode,config,"IMDB_s1")
-
+        if 'cola' == data_name :
+            return pre_data_cola(mode,config)
 #label_map={0:no, 1:yes, 2:False, 3:neutral, 4:True, 5:negative, 6:moderate, 7:postive, 8:conflict, 9:low, 10:high}
+
+#data = load_dataset('glue', 'cola')
+#local_map 설정 notyet
+def pre_data_cola(mode,config):
+    '''
+    data = load_dataset('glue', 'wnli')
+    train_data = data['train']
+    validation_data = data['validation']
+    test_data = data['test']
+    '''
+    #만약 t5 이거나 cross 가 안들어감 
+    local_map = "t5" in config.get("target_model","model_base").lower() or not 'cross' in config.get("target_model","model_name").lower()
+    
+    if local_map :
+        pass
+    
+    dataset_size = config.getint("train","dataset_size")
+    
+    data = load_dataset('glue', 'cola')
+    train_data = data['train']
+    validation_data = data['validation']
+    test_data = data['test']
+    
+    if mode == "test":
+        data = [{"sent1": ins['sentence'].strip(), "dataset":"cola"} for ins in test_data]
+    elif mode == 'valid':
+        data = [{"sent1": ins['sentence'].strip(),"label": int(ins['label']), "dataset":"cola"} for ins in validation_data]
+    else:
+        data = [{"sent1": ins['sentence'].strip(), "label": int(ins['label']) , "dataset":"cola"} for ins in train_data]
+        
+        if dataset_size == -1 :
+            pass
+        else :
+            data = data[:dataset_size]
+        
+    return data, len(data)
 
 
 

@@ -44,7 +44,6 @@ def recover_model_transfer_prompt(prompt_emb,projector,config):
     # prompt_emb = recover_model_transfer_prompt(prompt_emb,params["args"].projector,config)
     
     # print("Applied Projector weight file :",prompt_emb)
-    
     model_parameters = torch.load(projector, map_location=lambda storage, loc:storage)
 
     if config.get("projector","projector") == 'AE_1' : 
@@ -162,7 +161,7 @@ def init_all(config, gpu_list, mode, *args, **params): #->dictionary
             prompt_emb = recover_model_transfer_prompt(prompt_emb,params["args"].projector,config)
             
             if local_rank<=0 :
-                print("source prompt success to pass projector!")
+                print("source prompt success to pass projector <{}>!".format(params["args"].projector))
 
         else :
             if local_rank<=0 :

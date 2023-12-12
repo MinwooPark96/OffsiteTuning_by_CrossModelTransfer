@@ -17,13 +17,26 @@ mkdir PLM/T5LargeForMaskedLM
 mkdir PLM/T53BForMaskedLM
 mkdir PLM/T511BForMaskedLM
 
-gpus="3"
+gpus="0"
 
-for DATASET in imdb sst2 laptop restaurant movierationales tweetevalsentiment mnli qnli snli ethicsdeontology ethicsjustice qqp mrpc
+SOURCE=Bert
+TARGET=Roberta
+OPTION=1e4
+DATAS="imdb_sst2"
+
+mkdir valid_result
+mkdir valid_result/${DATAS}_${SOURCE}_${TARGET}_${OPTION}
+
+for (( EPOCH=2; EPOCH<=10; EPOCH+=2))
 do
+    for DATASET in imdb sst2 laptop restaurant movierationales tweetevalsentiment mnli qnli snli ethicsdeontology ethicsjustice qqp mrpc
+    do
+    
     CUDA_VISIBLE_DEVICES=$gpus python3 valid.py \
-        --config config/valid_configs_Roberta_Base/${DATASET}.config \
+        --config config/valid_configs_${TARGET}/${DATASET}.config \
         --gpu $gpus \
-        --prompt_emb ${DATASET}PromptBert\
-        --projector projector_hub/15_model_cross_0.8896.pkl
-done 
+        --prompt_emb ${DATASET}Prompt${SOURCE}  \
+        --projector model/${DATAS}_${SOURCE}_${TARGET}_${OPTION}/${EPOCH}_model_cross.pkl\
+        --output_name valid_result/${DATAS}_${SOURCE}_${TARGET}_${OPTION}/${EPOCH}
+    done 
+done

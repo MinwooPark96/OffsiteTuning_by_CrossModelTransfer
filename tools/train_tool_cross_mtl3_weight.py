@@ -129,7 +129,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         pass
     
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.005, weight_decay=0.0, correct_bias=True)
-    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.1, correct_bias=True)
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
+    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -186,6 +187,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
         MTLoss = 0
         lossList = len(parameters['train_dataset'])*[0]
+        totallossList = len(parameters['train_dataset'])*[0]
+        
         
         weight_save = len(parameters['train_dataset'])*[0.0]
         if epoch_num != 1:
@@ -234,7 +237,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                     lossList[idx] = loss
                     
                     weight_save[idx] += loss
-            
+                    totallossList[idx] += loss
+                    
             batch_lossList = [lossList[idx]*weight_load[idx] /sum(weight_load) for idx in range(len(lossList))] 
             MTLoss = sum(batch_lossList)
             total_loss += float(MTLoss)
@@ -328,11 +332,11 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
 
                     valid_total_loss += float(sum(valid_epoch_loss_list))
                     
-                if local_rank <=0 :
-                    root_dir = "model/"+config.get("output", "model_name")
-                    src_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross.pkl"
-                    targ_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross_"+str(round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4))+".pkl"
-                    os.rename(src_checkpoint_name, targ_checkpoint_name)
+                # if local_rank <=0 :
+                #     root_dir = "model/"+config.get("output", "model_name")
+                #     src_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross.pkl"
+                #     targ_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross_"+str(round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4))+".pkl"
+                #     os.rename(src_checkpoint_name, targ_checkpoint_name)
 
                     
         writer.add_scalar(config.get("output", "model_name") + "_valid_epoch_acc",round(float(acc_result_eval['right']/acc_result_eval['total']),4), current_epoch)
@@ -357,7 +361,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             train_valid_info["valid_average_loss"][current_epoch] = round(float(valid_total_loss),6)
             
             #each epoch sample loss
-            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_epoch_loss) ,4)
+            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),4)
             train_valid_info["valid_epoch_loss"][current_epoch] = round(float(sum(valid_epoch_loss_list)) ,4)
             
             #each epoch sample acc
@@ -375,7 +379,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             
             for idx,data in enumerate(train_data_list):
                 train_loss = data + "_train_loss"
-                train_valid_info[train_loss][current_epoch] = round(float(lossList[idx]),4)
+                train_valid_info[train_loss][current_epoch] = round(float(totallossList[idx]/(step+1)),4)
                 
             for idx,data in enumerate(valid_data_list):    
                 valid_loss = data + "_valid_loss"

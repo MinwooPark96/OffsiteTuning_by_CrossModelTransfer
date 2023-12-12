@@ -20,10 +20,12 @@ mkdir PLM/T511BForMaskedLM
 
 gpus="4"
 
+SOURCE = "Bert"
+
 CUDA_VISIBLE_DEVICES=$gpus python3 valid.py \
     --config config/develop_for_valid.config \
     --gpu $gpus \
-    --prompt_emb mrpcPromptBert\
+    --prompt_emb mrpcPrompt${SOURCE}\
     --seed 28 \
     --projector model/projector_hub/15_model_cross_0.8896.pkl\
     

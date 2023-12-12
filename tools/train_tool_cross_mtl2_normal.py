@@ -1,3 +1,5 @@
+#1e-4
+
 import logging
 import os
 import torch
@@ -22,8 +24,6 @@ from model.modelling_roberta import RobertaEmbeddings
 from model.modelling_bert import BertEmbeddings
 from model.modeling_t5 import T5EncoderModel
 from transformers import AutoConfig,AutoModelForMaskedLM,AutoTokenizer
-
-import copy
 
 #minwoo
 import json
@@ -128,9 +128,10 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     else:    
         pass
     
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.005, weight_decay=0.0, correct_bias=True)
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.01, weight_decay=0.0, correct_bias=True)
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
-    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
+    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-4, weight_decay=0.0, correct_bias=True)
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -157,11 +158,11 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         # dataset, parameters["valid_dataset"] = init_dataset(config, **params) #왜 2번하는지..?
         
         total_len = min([len(dataloader) for dataloader in parameters['train_dataset']])
-        dataloader_1, dataloader_2, dataloader_3 = parameters['train_dataset']
-        datasloader_zipped = zip(dataloader_1,dataloader_2,dataloader_3)
+        dataloader_1, dataloader_2 = parameters['train_dataset']
+        datasloader_zipped = zip(dataloader_1,dataloader_2)
         
         #for shuffle
-        for dataloader in (dataloader_1,dataloader_2,dataloader_3):
+        for dataloader in (dataloader_1,dataloader_2):
             dataloader.sampler.set_epoch(epoch_num)
             
         # datasets_zipped = zip(parameters['train_dataset'])
@@ -188,31 +189,14 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         MTLoss = 0
         lossList = len(parameters['train_dataset'])*[0]
         totallossList = len(parameters['train_dataset'])*[0]
-        
-        
-        weight_save = len(parameters['train_dataset'])*[0.0]
-        if epoch_num != 1:
-            if config.get("train","source_model"):
-                json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + config.get("train","source_model")+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
-            elif config.get("train","prompt_emb"):
-                json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + config.get("train","prompt_emb")+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
-            else :
-                json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + 'NAN'+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
-            
-            with open(json_path,'r',encoding='utf-8') as file:
-                train_valid_info = json.load(file)
-                weight_load = train_valid_info['weight'][str(epoch_num-1)]
-                
-        else :
-            weight_load = len(parameters['train_dataset'])*[1.0]
-        
+
         output_info = ""
         step = -1
         
         #각 batch 에 대하여 
-        for step, (dataloader_1, dataloader_2, dataloader_3) in enumerate(datasloader_zipped):
+        for step, (dataloader_1, dataloader_2) in enumerate(datasloader_zipped):
             # tensor to cuda
-            for dataloader in (dataloader_1, dataloader_2, dataloader_3): #datas = [source,target]
+            for dataloader in (dataloader_1, dataloader_2): #datas = [source,target]
                 dataset = dataloader[1] #only using target
                 for key in dataset.keys():
                     if isinstance(dataset[key], torch.Tensor):
@@ -225,24 +209,20 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             model_AE.zero_grad() 
             
             if "T5" in config.get("target_model","model_base"):
-                for idx,(source_dataset,target_dataset) in enumerate([dataloader_1,dataloader_2,dataloader_3]):
+                for idx,(source_dataset,target_dataset) in enumerate([dataloader_1,dataloader_2]):
                     results = model(target_dataset, config, gpu_list, acc_result, "train", args=params, step=step, performance=performance, AE=model_AE)
                     loss, performance = results["loss"], results["performance"]
                     lossList[idx] = loss
                     
             else:
-                for idx,(source_dataset,target_dataset) in enumerate([dataloader_1,dataloader_2,dataloader_3]):
+                for idx,(source_dataset,target_dataset) in enumerate([dataloader_1,dataloader_2]):
                     results = model(target_dataset, config, gpu_list, acc_result, "train", AE=model_AE)
                     loss, acc_result = results["loss"], results["acc_result"]
                     lossList[idx] = loss
-                    
-                    weight_save[idx] += loss
                     totallossList[idx] += loss
                     
-            batch_lossList = [lossList[idx]*weight_load[idx] /sum(weight_load) for idx in range(len(lossList))] 
-            MTLoss = sum(batch_lossList)
+            MTLoss = sum(lossList) 
             total_loss += float(MTLoss)
-            
             
             MTLoss.backward()
             optimizer_AE.step()
@@ -294,7 +274,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         writer.add_scalar(config.get("output", "model_name") + "_train_epoch_total_loss", float(total_loss) / (step + 1), current_epoch)
         
         train_total_loss = float(total_loss)
-        train_epoch_loss = float(sum(batch_lossList)) #last step loss in a epoch
+        train_epoch_loss = float(sum(lossList)) #last step loss in a epoch
         
         
         if "T5" in config.get("target_model","model_base"):
@@ -361,17 +341,12 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             train_valid_info["valid_average_loss"][current_epoch] = round(float(valid_total_loss),6)
             
             #each epoch sample loss
-            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),4)
+            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
             train_valid_info["valid_epoch_loss"][current_epoch] = round(float(sum(valid_epoch_loss_list)) ,4)
             
             #each epoch sample acc
             train_valid_info["train_epoch_acc"][current_epoch] = round(float(acc_result['right']/acc_result['total']),4)
             train_valid_info["valid_epoch_acc"][current_epoch] = round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4)
-            
-            #weight
-            train_valid_info['weight'][int(epoch_num)]= len(parameters['train_dataset']) * [None]
-            for idx in range(len(parameters['train_dataset'])):
-                train_valid_info['weight'][epoch_num][idx] = float(weight_save[idx])/(step+1)
             
             train_data_list = config.get("data","train_dataset_type").split(',')
             valid_data_list = config.get("data","valid_dataset_type").split(',')

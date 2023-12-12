@@ -1,3 +1,5 @@
+
+#softmax 1e-4
 import logging
 import os
 import torch
@@ -28,6 +30,7 @@ import copy
 #minwoo
 import json
 from collections import defaultdict
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +132,9 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         pass
     
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.005, weight_decay=0.0, correct_bias=True)
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
-    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
+    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-4, weight_decay=0.0, correct_bias=True)
+    
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -189,7 +193,6 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         lossList = len(parameters['train_dataset'])*[0]
         totallossList = len(parameters['train_dataset'])*[0]
         
-        
         weight_save = len(parameters['train_dataset'])*[0.0]
         if epoch_num != 1:
             if config.get("train","source_model"):
@@ -201,10 +204,13 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             
             with open(json_path,'r',encoding='utf-8') as file:
                 train_valid_info = json.load(file)
-                weight_load = train_valid_info['weight'][str(epoch_num-1)]
+                weight_load = torch.tensor(train_valid_info['weight_save'][str(epoch_num-1)])
+                weight_load = list(F.softmax(weight_load,dim=0))
                 
         else :
-            weight_load = len(parameters['train_dataset'])*[1.0]
+            weight_load = torch.tensor(len(parameters['train_dataset'])*[1.0],dtype=torch.float)
+            weight_load = list(F.softmax(weight_load,dim=0))
+                
         
         output_info = ""
         step = -1
@@ -238,8 +244,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                     
                     weight_save[idx] += loss
                     totallossList[idx] += loss
-                    
-            batch_lossList = [lossList[idx]*weight_load[idx] /sum(weight_load) for idx in range(len(lossList))] 
+
+            batch_lossList = [lossList[idx]*weight_load[idx] for idx in range(len(lossList))] 
             MTLoss = sum(batch_lossList)
             total_loss += float(MTLoss)
             
@@ -361,7 +367,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             train_valid_info["valid_average_loss"][current_epoch] = round(float(valid_total_loss),6)
             
             #each epoch sample loss
-            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),4)
+            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
             train_valid_info["valid_epoch_loss"][current_epoch] = round(float(sum(valid_epoch_loss_list)) ,4)
             
             #each epoch sample acc
@@ -369,9 +375,11 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             train_valid_info["valid_epoch_acc"][current_epoch] = round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4)
             
             #weight
-            train_valid_info['weight'][int(epoch_num)]= len(parameters['train_dataset']) * [None]
+            train_valid_info['weight_save'][int(epoch_num)]= len(parameters['train_dataset']) * [None]
+            train_valid_info['weight_load'][int(epoch_num)]= len(parameters['train_dataset']) * [None]
             for idx in range(len(parameters['train_dataset'])):
-                train_valid_info['weight'][epoch_num][idx] = float(weight_save[idx])/(step+1)
+                train_valid_info['weight_save'][epoch_num][idx] = float(weight_save[idx])/(step+1)
+                train_valid_info['weight_load'][epoch_num][idx] = float(weight_load[idx])
             
             train_data_list = config.get("data","train_dataset_type").split(',')
             valid_data_list = config.get("data","valid_dataset_type").split(',')

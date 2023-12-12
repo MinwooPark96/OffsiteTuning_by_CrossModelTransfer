@@ -1,4 +1,4 @@
-#for distance 
+#for normal
 from transformers import AutoTokenizer,T5TokenizerFast
 import torch
 import json
@@ -15,28 +15,28 @@ class crossPromptFormatter(BasicFormatter):
         
         self.target_len = config.getint("train", "target_len")
         
-        if mode == 'train':
+        # if mode == 'train':
             
-            self.source_model_name = config.get('train','source_model').lower()
-            if "roberta" in self.source_model_name: 
-                try:
-                    self.source_tokenizer = AutoTokenizer.from_pretrained("roberta-base")
-                except:
-                    self.source_tokenizer = AutoTokenizer.from_pretrained("RobertaForMaskedLM/roberta-base")
+        #     self.source_model_name = config.get('train','source_model').lower()
+        #     if "roberta" in self.source_model_name: 
+        #         try:
+        #             self.source_tokenizer = AutoTokenizer.from_pretrained("roberta-base")
+        #         except:
+        #             self.source_tokenizer = AutoTokenizer.from_pretrained("RobertaForMaskedLM/roberta-base")
             
-            elif "bert" in self.source_model_name:
-                self.source_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        #     elif "bert" in self.source_model_name:
+        #         self.source_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
             
-            elif "t5" in self.source_model_name :
+        #     elif "t5" in self.source_model_name :
                 
-                try:
-                    self.source_tokenizer = T5TokenizerFast.from_pretrained("t5-base")
-                except:
-                    self.source_tokenizer = T5TokenizerFast.from_pretrained("T5ForMaskedLM/t5-base")
+        #         try:
+        #             self.source_tokenizer = T5TokenizerFast.from_pretrained("t5-base")
+        #         except:
+        #             self.source_tokenizer = T5TokenizerFast.from_pretrained("T5ForMaskedLM/t5-base")
             
-            else:
-                print("Have no matching in the formatter: formatter/crossPromptFormatter.py")
-                exit()
+        #     else:
+        #         print("Have no matching in the formatter: formatter/crossPromptFormatter.py")
+        #         exit()
             
         self.target_model_name = config.get("target_model","model_base").lower()
         
@@ -47,10 +47,10 @@ class crossPromptFormatter(BasicFormatter):
             except:
                 self.target_tokenizer = AutoTokenizer.from_pretrained("RobertaForMaskedLM/roberta-base")
         
-        elif "bert" in self.model_name:
+        elif "bert" in self.target_model_name:
             self.target_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         
-        elif "t5" in self.model_name :
+        elif "t5" in self.target_model_name :
             
             try:
                 self.target_tokenizer = T5TokenizerFast.from_pretrained("t5-base")
@@ -196,13 +196,15 @@ class crossPromptFormatter(BasicFormatter):
         local_rank = config.getint("distributed","local_rank")
         
         if mode == "train":
-            if "t5" in self.source_model_name:
-                dataset_source =  self.process_T5(data,mode,self.source_tokenizer)
-            else :
-                dataset_source =  self.process_nonT5(data,mode,self.source_tokenizer)
+            
+            ## it's for future work!
+            # if "t5" in self.source_model_name:
+            #     dataset_source =  self.process_T5(data,mode,self.source_tokenizer)
+            # else :
+            #     dataset_source =  self.process_nonT5(data,mode,self.source_tokenizer)
             
             # if local_rank <= 0 :
-            #     print("[train] dataset_soure is setted from  <{}> , data = <{}>".format(self.model_name,data[0]['dataset']))
+            #     print("[train] dataset_soure is setted from  <{}> , data = <{}>".format(self.source_model_name,data[0]['dataset']))
             
             if "t5" in self.target_model_name:
                 dataset_target =  self.process_T5(data,mode,self.target_tokenizer)
@@ -210,10 +212,10 @@ class crossPromptFormatter(BasicFormatter):
                 dataset_target =  self.process_nonT5(data,mode,self.target_tokenizer)
             
             # if local_rank <= 0 :
-            #     print("[train] dataset_soure is setted from  <{}> , data = <{}>".format(self.model_name,data[0]['dataset']))
+            #     print("[train] dataset_soure is setted from  <{}> , data = <{}>".format(self.target_model_name,data[0]['dataset']))
             
             
-            return dataset_source,dataset_target
+            return None , dataset_target #output source dataset as None
             
         else :
             

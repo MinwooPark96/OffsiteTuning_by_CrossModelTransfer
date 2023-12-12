@@ -1,4 +1,4 @@
-#for distance 
+#for distance
 from transformers import AutoTokenizer,T5TokenizerFast
 import torch
 import json
