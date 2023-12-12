@@ -198,7 +198,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
         distanceList = len(parameters['train_dataset'])*[0]
         totaldistanceList = len(parameters['train_dataset'])*[0]
-        distance_loss = torch.nn.MSELoss()
+        distance_loss = torch.nn.CosineSimilarity(dim=2)
         total_distance = 0                     
         
         
@@ -253,7 +253,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                         source_module = model_AE(source_masked_embedding)
                         target_module = target_masked_embedding
                         lambda_ = 1
-                        distance = distance_loss(source_module,target_module)*lambda_
+                        distance = torch.mean(1-distance_loss(source_module,target_module))*lambda_
                         
                     distanceList[idx] = distance
             

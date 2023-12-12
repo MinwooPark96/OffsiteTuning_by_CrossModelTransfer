@@ -1,4 +1,4 @@
-#1e-4 distance mask lambda 1
+#1e-3 distance mask lambda 0.1 cs loss
 
 import logging
 import os
@@ -132,6 +132,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
     optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-4, weight_decay=0.0, correct_bias=True)
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-3, weight_decay=0.0, correct_bias=True)
+    
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -198,7 +200,9 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
         distanceList = len(parameters['train_dataset'])*[0]
         totaldistanceList = len(parameters['train_dataset'])*[0]
-        distance_loss = torch.nn.MSELoss()
+        # distance_loss = torch.nn.MSELoss()
+        # distance_loss = torch.nn.PairwiseDistance()
+        distance_loss = torch.nn.CosineSimilarity(dim=2)
         total_distance = 0                     
         
         
@@ -253,7 +257,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                         source_module = model_AE(source_masked_embedding)
                         target_module = target_masked_embedding
                         lambda_ = 1
-                        distance = distance_loss(source_module,target_module)*lambda_
+                        distance = torch.mean(1-distance_loss(source_module,target_module))*lambda_
                         
                     distanceList[idx] = distance
             

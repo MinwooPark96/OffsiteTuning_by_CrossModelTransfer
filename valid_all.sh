@@ -21,7 +21,7 @@ gpus="0"
 
 SOURCE=Bert
 TARGET=Roberta
-OPTION=distance_mask
+OPTION=distance_mask_cs_1e4_lam1
 DATAS="imdb_sst2"
 
 mkdir valid_result
@@ -33,7 +33,7 @@ do
     do
     
     CUDA_VISIBLE_DEVICES=$gpus python3 valid.py \
-        --config config/valid_configs_${SOURCE}_${TARGET}_${OPTION}/${DATASET}.config \
+        --config config/valid_configs_${SOURCE}_${TARGET}_distance_mask/${DATASET}.config \
         --gpu $gpus \
         --prompt_emb ${DATASET}Prompt${SOURCE}  \
         --projector model/${DATAS}_${SOURCE}_${TARGET}_${OPTION}/${EPOCH}_model_cross.pkl\
