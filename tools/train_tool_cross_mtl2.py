@@ -1,4 +1,4 @@
-#1e-4 distance
+#1e-4 distance mask lambda 0.1
 
 import logging
 import os
@@ -233,25 +233,27 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                     
                     with torch.no_grad():
                         source_embedding = source_encoder.bert.embeddings(input_ids = source_dataset['inputx'])[:,100:,:]
+                        source_mask = source_dataset['mask'].unsqueeze(2).expand(source_dataset['inputx'].size(0),source_dataset['inputx'].size(1),source_embedding.size(2))[:,100:,:]
+                        source_masked_embedding = source_mask * source_embedding
                         
+                    
                         target_embedding = target_encoder.roberta.embeddings(input_ids = target_dataset['inputx'])[:,100:,:]
+                        target_mask = target_dataset['mask'].unsqueeze(2).expand(target_dataset['inputx'].size(0),target_dataset['inputx'].size(1),target_embedding.size(2))[:,100:,:]
+                        target_masked_embedding = target_mask * target_embedding
+                        
                         
                     if config.getboolean('projector','flatten'):
-                        source_module = source_embedding @ torch.transpose(source_embedding,1,2)
-                        target_module = target_embedding @ torch.transpose(target_embedding,1,2)
+                        source_module = source_masked_embedding @ torch.transpose(source_masked_embedding,1,2)
+                        target_module = target_masked_embedding @ torch.transpose(target_masked_embedding,1,2)
                         lambda_ = 1e-5
                         distance = torch.norm(source_module-target_module,p='fro')*lambda_
                         # print(source_module.size())
                     
                     else :
-                        source_module = model_AE(source_embedding)
-                        target_module = target_embedding
-                        lambda_ = 0.01
+                        source_module = model_AE(source_masked_embedding)
+                        target_module = target_masked_embedding
+                        lambda_ = 0.1
                         distance = distance_loss(source_module,target_module)*lambda_
-                        # lambda_ = 1 : loss 처음부터 터짐.
-                        # lambda_ = 0.1 : 나중에 터짐.
-                        # lambda_ = 0.01 : 나중에 터짐.
-                        # lambda_ = 0.05 : 나중에 터짐.
                         
                     distanceList[idx] = distance
             
@@ -537,6 +539,7 @@ def load_model(config,target_model = True):
             encoder = BertForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
         
         elif 't5' in model_name :
+            from model.modeling_t5 import T5ForConditionalGeneration
             encoder = T5ForConditionalGeneration.from_pretrained(model, config=plmconfig)
 
             os.mkdir(init_model_path)

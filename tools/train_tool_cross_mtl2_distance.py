@@ -246,12 +246,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                     else :
                         source_module = model_AE(source_embedding)
                         target_module = target_embedding
-                        lambda_ = 0.01
+                        lambda_ = 1
                         distance = distance_loss(source_module,target_module)*lambda_
-                        # lambda_ = 1 : loss 처음부터 터짐.
-                        # lambda_ = 0.1 : 나중에 터짐.
-                        # lambda_ = 0.01 : 나중에 터짐.
-                        # lambda_ = 0.05 : 나중에 터짐.
                         
                     distanceList[idx] = distance
             

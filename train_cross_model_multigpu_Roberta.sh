@@ -23,7 +23,7 @@ gpus="1,2,3,4,5"
 
 TARGET=Roberta
 
-for SOURCE in Bert T5Small
+for SOURCE in Bert
     do
     NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=$gpus torchrun --nnodes 1 --nproc-per-node 5 train_cross.py \
         --config config/develop_for_MTL_${SOURCE}_${TARGET}_distance.config \
