@@ -2,19 +2,26 @@ import torch
 from torch import nn
 
 
-class AE_auto_layer(nn.Module):
+class AE_auto_layer(nn.Module): #dropout, linear init 추가
     def __init__(self, **kwargs):
         super(AE_auto_layer, self).__init__()
 
-        dims = [v for k,v in kwargs] #key,value
+        dims = [kwargs[key] for key in kwargs] #key,value
         
-        #[768,256,124,256,768]
+        #[768,256,128,256,768]
         
-        for id, dim in enumerate(dims):
-            self.encoders = [nn.Linear(in_features=dim, out_features=dims[id+1])]
-            if len(self.encoders) >= len(dim)-1:
-                break
-
+        self.hidden_layers = nn.ModuleList()
+        
+        for idx in range(len(dims) - 1):
+            self.hidden_layers.append(nn.Linear(dims[idx], dims[idx+1]))
+        
+        # for linears in self.hidden_layers:
+        #     torch.nn.init.xavier_uniform_(linears.weight)
+        
+        
+        
+        self.layer_norm = nn.LayerNorm(dims[-1], eps=1e-05)
+        # self.dropout = torch.nn.Dropout(p=0.3)
         #self.encoder = nn.Linear(
         #    in_features=kwargs["input_dim"], out_features=kwargs["compress_dim"]
         #)
@@ -32,9 +39,10 @@ class AE_auto_layer(nn.Module):
         encoded_emb = torch.relu(encoded_emb)
         return encoded_emb
         '''
-        for encoder in self.encoders:
-            features = encoder(features)
-            features = self.activation(features)
+        for layer in self.hidden_layers:
+            features = self.activation(layer(features))
+
+        features = self.layer_norm(features)
         return features
 
 
@@ -172,7 +180,7 @@ class AE_1_layer(nn.Module):
             in_features=int(kwargs["dim_1"]), out_features=kwargs["dim_2"]
         )
 
-        # self.layer_norm = nn.LayerNorm(kwargs['dim_2'], eps=1e-05)
+        self.layer_norm = nn.LayerNorm(kwargs['dim_2'], eps=1e-05)
         
         # mean-squared error loss
         self.criterion = nn.CrossEntropyLoss()
@@ -187,7 +195,7 @@ class AE_1_layer(nn.Module):
         encoded_emb = self.encoding(features)
         encoded_emb = self.activation(encoded_emb)
         decoded_emb = self.decoding(encoded_emb)
-        #decoded_emb = self.layer_norm(decoded_emb)
+        decoded_emb = self.layer_norm(decoded_emb)
         return decoded_emb
 
 
@@ -195,22 +203,37 @@ class AE_transformer_layer(nn.Module):
     def __init__(self, **kwargs):
         super(AE_transformer_layer, self).__init__()
         
-        self.transformerEncoderLayer = torch.nn.TransformerEncoderLayer(d_model = 512, nhead = 8, batch_first = True)
+        d_model = 128
+        self.transformerEncoderLayer = torch.nn.TransformerEncoderLayer(d_model = d_model, nhead = 8, batch_first = True)
         self.transformerEnocder = torch.nn.TransformerEncoder(self.transformerEncoderLayer,num_layers = 6)
 
         self.encoder = nn.Linear(
-            in_features=int(kwargs["dim_0"]), out_features=512
-        )
+            in_features=int(kwargs["dim_0"]), out_features=d_model)
+        
+        # self.expander = nn.Linear(in_features=128,out_features=256)
         
         self.decoder = nn.Linear(
-            in_features=512, out_features=kwargs["dim_1"]
-        )    
+            in_features=d_model, out_features=kwargs["dim_1"])    
+        
+        self.criterion = nn.CrossEntropyLoss()
+        self.activation = nn.LeakyReLU()
+        
+        self.layer_norm = nn.LayerNorm(kwargs['dim_1'], eps=1e-05)
+        
+        self.init_weights()
+    
+    def init_weights(self) -> None:
+        initrange = 0.1
+        self.decoder.bias.data.zero_()
+        self.decoder.weight.data.uniform_(-initrange, initrange)
+
         
     def forward(self, features):
         
         encoded_emb = self.encoder(features)
         encoded_emb = self.transformerEnocder(encoded_emb)
         decoded_emb = self.decoder(encoded_emb)
+        # decoded_emb = self.layer_norm(decoded_emb)
         return decoded_emb
 
 

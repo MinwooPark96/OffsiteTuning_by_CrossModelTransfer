@@ -44,17 +44,31 @@ def recover_model_transfer_prompt(prompt_emb,projector,config):
     # prompt_emb = recover_model_transfer_prompt(prompt_emb,params["args"].projector,config)
     
     # print("Applied Projector weight file :",prompt_emb)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     model_parameters = torch.load(projector, map_location=lambda storage, loc:storage)
-
-    if config.get("projector","projector") == 'AE_1' : 
+    
+    
+    if 'AE_1' in config.get("projector","projector"):
         if config.getboolean("projector","flatten") : 
-            model = AE_1_layer_mutiple_100(dim_0=int(model_parameters["encoder.weight"].shape[1]),dim_1=int(model_parameters["encoder.weight"].shape[0]),dim_2=int(model_parameters["decoder.weight"].shape[0])).to("cuda")
-        else :
             dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
-            model = AE_1_layer(dim_0 = dim_0, dim_1 = dim_1, dim_2 = dim_2).to("cuda")
+            model = AE_1_layer_mutiple_100(dim_0=dim_0,dim_1=dim_1,dim_2=dim_2).to(device)
+            
+        else :
+            
+            if 'auto' in config.get("projector","projector"):
+                    values = list(map(int,config.get('projector','dims').strip().split(',')))
+                    keys = ["dim_"+str(idx) for idx in range(len(values))]
+                    dims = dict(zip(keys,values))
+                    model = AE_auto_layer(**dims).to(device)
+
+            else:
+                dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
+                model= AE_1_layer(dim_0 = dim_0, dim_1 = dim_1, dim_2 = dim_2).to(device)
+    
     
     else :
-        print("check projector in your config")
+        print("check projector in your config/init_tool.py")
         NotImplementedError        
     
     if projector == "Random" or projector=="random":

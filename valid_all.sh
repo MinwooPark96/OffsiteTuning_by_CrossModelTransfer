@@ -21,19 +21,19 @@ gpus="0"
 
 SOURCE=Bert
 TARGET=Roberta
-OPTION=distance_mask_cs_1e4_lam1
-DATAS="imdb_sst2"
+OPTION=distance_mask_cs_1e2_lam01_auto_fix
+DATAS="mnli_snli"
 
 mkdir valid_result
 mkdir valid_result/${DATAS}_${SOURCE}_${TARGET}_${OPTION}
 
-for (( EPOCH=2; EPOCH<=10; EPOCH+=2))
+for (( EPOCH=51; EPOCH<=100; EPOCH+=1))
 do
     for DATASET in imdb sst2 laptop restaurant movierationales tweetevalsentiment mnli qnli snli ethicsdeontology ethicsjustice qqp mrpc
     do
     
     CUDA_VISIBLE_DEVICES=$gpus python3 valid.py \
-        --config config/valid_configs_${SOURCE}_${TARGET}_distance_mask/${DATASET}.config \
+        --config config/valid_configs_${SOURCE}_${TARGET}_auto/${DATASET}.config \
         --gpu $gpus \
         --prompt_emb ${DATASET}Prompt${SOURCE}  \
         --projector model/${DATAS}_${SOURCE}_${TARGET}_${OPTION}/${EPOCH}_model_cross.pkl\

@@ -1,3 +1,4 @@
+#distance mask 1e4 lam1
 import logging
 import os
 import torch
@@ -16,7 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 #from model.optimizer import init_optimizer #저자주석
 import transformers
-from tools.projector import AE_0_layer, AE_1_layer_mutiple_100, AE_1_layer, AE_1_layer_mutiple_100_paper,AE_transformer_layer,AE_1_layer_tokenwise
+from tools.projector import AE_0_layer, AE_1_layer_mutiple_100, AE_1_layer, AE_1_layer_mutiple_100_paper,AE_transformer_layer,AE_1_layer_tokenwise,AE_auto_layer
 
 from model.modelling_roberta import RobertaEmbeddings
 from model.modelling_bert import BertEmbeddings
@@ -70,13 +71,25 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     
     # <select projector> 
     projector = config.get("projector","projector")
-    dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
-    
-    if projector == 'AE_1':
+    if 'AE_1' in projector:
         if config.getboolean("projector","flatten") : 
+            dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
             model_AE = AE_1_layer_mutiple_100(dim_0=dim_0,dim_1=dim_1,dim_2=dim_2).to(device)
+            
         else :
-            model_AE = AE_1_layer(dim_0=dim_0,dim_1=dim_1,dim_2=dim_2).to(device)
+            
+            if 'auto' in projector:
+                    values = list(map(int,config.get('projector','dims').strip().split(',')))
+                    keys = ["dim_"+str(idx) for idx in range(len(values))]
+                    dims = dict(zip(keys,values))
+                    model_AE = AE_auto_layer(**dims).to("cuda")
+
+            elif 'transformer' in projector:
+                    dim_0,dim_1= config.getint("projector","dim_0"),config.getint("projector","dim_1")
+                    model_AE = AE_transformer_layer(dim_0=dim_0,dim_1=dim_1).to("cuda")
+            else:
+                dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
+                model_AE = AE_1_layer(dim_0 = dim_0, dim_1 = dim_1, dim_2 = dim_2).to("cuda")
     
     # elif projector == "AE_0":
         # model_AE = AE_0_layer(dim_0=dim_0,dim_1=dim_1).to(device)
@@ -127,7 +140,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         pass
     
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.005, weight_decay=0.0, correct_bias=True)
-    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
+    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-4, weight_decay=0.0, correct_bias=True)
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -148,6 +161,9 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     exp_lr_scheduler.step(trained_epoch)
     
     
+    source_encoder = load_model(config,target_model=False).to("cuda")
+    target_encoder = load_model(config,target_model=True).to("cuda")
+        
     for epoch_num in range(trained_epoch, epoch):
         
         
@@ -182,20 +198,31 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
         MTLoss = 0
         lossList = len(parameters['train_dataset'])*[0]
+        totallossList = len(parameters['train_dataset'])*[0]
         
         output_info = ""
         step = -1
         
+        distanceList = len(parameters['train_dataset'])*[0]
+        totaldistanceList = len(parameters['train_dataset'])*[0]
+        
+        distance_loss = torch.nn.CosineSimilarity(dim=2)
+        # distance_loss = torch.nn.PairwiseDistance()
+        
+        total_distance = 0                     
+        
         #각 batch 에 대하여 
         for step, (source_dataset,target_dataset) in enumerate(dataloader):
             # tensor to cuda
-            dataset =target_dataset
-            for key in dataset.keys():
-                if isinstance(dataset[key], torch.Tensor):
-                    if len(gpu_list) > 0:
-                        dataset[key] = Variable(dataset[key].cuda())
-                    else:
-                        dataset[key] = Variable(dataset[key])
+            for dataset in (source_dataset,target_dataset):
+                
+                for key in dataset.keys():
+                
+                    if isinstance(dataset[key], torch.Tensor):
+                        if len(gpu_list) > 0:
+                            dataset[key] = Variable(dataset[key].cuda())
+                        else:
+                            dataset[key] = Variable(dataset[key])
                     
             
             model_AE.zero_grad() 
@@ -210,11 +237,53 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                 for idx,(source_dataset,target_dataset) in enumerate([[source_dataset,target_dataset]]):
                     results = model(target_dataset, config, gpu_list, acc_result, "train", AE=model_AE)
                     loss, acc_result = results["loss"], results["acc_result"]
+                    
                     lossList[idx] = loss
                     
                     
-            MTLoss = sum(lossList) 
+                    assert config.getboolean('projector','flatten') == False
+                    
+                    # # 16*231*768 
+                    
+                    with torch.no_grad():
+                        source_embedding = source_encoder.bert.embeddings(input_ids = source_dataset['inputx'][:,100:],attention_mask=source_dataset['mask'][:,100:])                        
+                        source_mask = source_dataset['mask'].unsqueeze(2).expand(source_dataset['inputx'].size(0),source_dataset['inputx'].size(1),source_embedding.size(2))[:,100:,:]
+                        source_masked_embedding = source_mask * source_embedding
+                        
+                    
+                        target_embedding = target_encoder.roberta.embeddings(input_ids = target_dataset['inputx'][:,100:],attention_mask=target_dataset['mask'][:,100:])
+                        target_mask = target_dataset['mask'].unsqueeze(2).expand(target_dataset['inputx'].size(0),target_dataset['inputx'].size(1),target_embedding.size(2))[:,100:,:]
+                        target_masked_embedding = target_mask * target_embedding
+                        
+                        
+                    if config.getboolean('projector','flatten'):
+                        source_module = source_masked_embedding @ torch.transpose(source_masked_embedding,1,2)
+                        target_module = target_masked_embedding @ torch.transpose(target_masked_embedding,1,2)
+                        lambda_ = 1e-5
+                        distance = torch.norm(source_module-target_module,p='fro')*lambda_
+                        # print(source_module.size())
+                    
+                    else :
+                        source_module = model_AE(source_masked_embedding)
+                        target_module = target_masked_embedding
+                        # source_module = model_AE(source_embedding)
+                        # target_module = target_embedding
+                        lambda_ = 0.1
+                        distance = torch.mean(1-distance_loss(source_module,target_module))*lambda_
+                        
+                        # distance = distance_loss(source_module,target_module)
+                        # distance = torch.mean(distance)*lambda_
+                        
+                        
+                    distanceList[idx] = distance
+                    totallossList[idx] += loss
+                    totaldistanceList[idx] += distance
+                    
+                    
+            MTLoss = sum(lossList) + sum(distanceList)
+            # MTLoss = sum(distanceList)
             total_loss += float(MTLoss)
+            
             
             MTLoss.backward()
             optimizer_AE.step()
@@ -304,17 +373,21 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
 
                     valid_total_loss += float(sum(valid_epoch_loss_list))
                     
-                if local_rank <=0 :
-                    root_dir = "model/"+config.get("output", "model_name")
-                    src_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross.pkl"
-                    targ_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross_"+str(round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4))+".pkl"
-                    os.rename(src_checkpoint_name, targ_checkpoint_name)
+                # if local_rank <=0 :
+                #     root_dir = "model/"+config.get("output", "model_name")
+                #     src_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross.pkl"
+                #     targ_checkpoint_name = root_dir+"/"+str(current_epoch)+"_model_cross_"+str(round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4))+".pkl"
+                #     os.rename(src_checkpoint_name, targ_checkpoint_name)
 
                     
         writer.add_scalar(config.get("output", "model_name") + "_valid_epoch_acc",round(float(acc_result_eval['right']/acc_result_eval['total']),4), current_epoch)
         
         
         if local_rank <=0 and not "T5" in config.get("target_model","model_base"):            
+            # print(source_embedding)
+            # print(target_embedding)
+            # float(sum(distanceList))
+            
             if config.get("train","source_model"):
                 json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + config.get("train","source_model")+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
             elif config.get("train","prompt_emb"):
@@ -326,16 +399,20 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             elif os.path.exists(json_path):
                 with open(json_path,'r',encoding='utf-8') as file:
                     train_valid_info = json.load(file)
-                    
+
             #each epoch average loss
             train_valid_info["train_average_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
             train_valid_info["valid_average_loss"][current_epoch] = round(float(valid_total_loss),6)
             
-            #each epoch sample loss
-            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_epoch_loss) ,4)
-            train_valid_info["valid_epoch_loss"][current_epoch] = round(float(sum(valid_epoch_loss_list)) ,4)
             
-            #each epoch sample acc
+            #each epoch loss
+            train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
+            train_valid_info["valid_epoch_loss"][current_epoch] = round(float(sum(valid_epoch_loss_list)) ,4)
+            train_valid_info["distance_epoch_loss"][current_epoch] = round(float(sum(totaldistanceList)/ (step + 1)),6)
+
+            
+            
+            #each epoch acc
             train_valid_info["train_epoch_acc"][current_epoch] = round(float(acc_result['right']/acc_result['total']),4)
             train_valid_info["valid_epoch_acc"][current_epoch] = round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4)
             
@@ -360,3 +437,150 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             torch.distributed.barrier()
 
 
+def load_model(config,target_model = True):
+    
+    local_map = config.getboolean("train","local_map")
+    
+    assert local_map == False
+    
+
+    
+    if target_model:    
+        model_name = config.get("target_model","model_base").lower() 
+    else :
+        model_name = config.get("train","source_model").lower()
+    
+    if "roberta" in model_name:
+        try:
+            if "large" in model_name:
+                model = "roberta-large"
+                ckp = "PLM/RobertaLargeForMaskedLM"
+                hidden_size = 1024
+            else:
+                model = "roberta-base"
+                ckp = "PLM/RobertaForMaskedLM"
+                hidden_size = 768
+            
+        except:
+            model = "roberta-base"
+            ckp = "PLM/RobertaForMaskedLM"
+            hidden_size = 768
+    
+    elif "bert" in model_name:
+        try:
+            if "large" in model_name:
+                model = "bert-large"
+                ckp = "PLM/BertLargeForMaskedLM"
+                hidden_size = 1024
+            elif "medium" in model_name:
+                model = "prajjwal1/bert-medium"
+                ckp = "PLM/BertMediumForMaskedLM"
+                hidden_size = 512
+            else :
+                model = "bert-base-uncased"
+                ckp = "PLM/BertForMaskedLM"
+                hidden_size = 768
+            
+        except:
+            model = "bert-base-uncased"
+            ckp = "PLM/BertForMaskedLM"
+            hidden_size = 768
+    elif 't5' in model_name :
+        
+        try:
+            if "small" in model_name:
+                model = "t5-small"
+                ckp = "PLM/T5SmallForMaskedLM"
+                hidden_size = 512
+            elif "large" in model_name:
+                model = "t5-large"
+                ckp = "PLM/T5LargeForMaskedLM"
+                hidden_size = 1024
+            elif "b3" in model_name:
+                model = "t5-b3"
+                ckp = "PLM/T5B3ForMaskedLM"
+                hidden_size = 1024
+            
+            else:
+                model = "t5-base"
+                ckp = "PLM/T5ForMaskedLM"
+                hidden_size = 768
+        except:
+            model = "t5-base"
+            ckp = "PLM/T5ForMaskedLM"
+            hidden_size = 768
+
+    
+    else:
+        
+        print("load_model function error! <{}>".format(model_name))
+        exit()
+    
+    if "bert-medium" in model: 
+        model = "bert-medium"
+
+    plmconfig = AutoConfig.from_pretrained(model)
+    plmconfig.prompt_num = config.getint("prompt", "prompt_num")
+    plmconfig.prompt_len = config.getint("prompt", "prompt_len")
+
+    
+    if "large" in model_name:
+        init_model_path = str(ckp)+"/"+"Prompt"+str(model.split("-")[0].capitalize())+"Large"+"_init_params"
+    
+    elif "medium" in model_name:
+        init_model_path = str(ckp)+"/"+"Prompt"+str(model.split("-")[0].capitalize())+"Medium"+"_init_params"
+    
+    else:
+        init_model_path = str(ckp)+"/"+"Prompt"+str(model.split("-")[0].capitalize())+"_init_params"
+
+    if os.path.exists(init_model_path+"/pytorch_model.bin"):
+        if "roberta" in model_name:
+            from model.modelling_roberta import RobertaForMaskedLM
+            encoder = RobertaForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
+        elif "bert" in model_name:
+            from model.modelling_bert import BertForMaskedLM
+            encoder = BertForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
+        
+        elif 't5' in model_name:
+            from model.modeling_t5 import T5ForConditionalGeneration
+            encoder = T5ForConditionalGeneration.from_pretrained(init_model_path, config=plmconfig)
+            
+        else:
+            exit()
+    else:
+        if "roberta" in model_name:
+            from model.modelling_roberta import RobertaForMaskedLM
+            encoder = RobertaForMaskedLM.from_pretrained(model, config=plmconfig)
+            os.mkdir(init_model_path)
+            torch.save(encoder.state_dict(), str(init_model_path)+"/pytorch_model.bin")
+            print("Save Done")
+            encoder = RobertaForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
+        elif "bert" in model_name:
+            from model.modelling_bert import BertForMaskedLM
+            encoder = BertForMaskedLM.from_pretrained(model, config=plmconfig)
+            os.mkdir(init_model_path)
+            torch.save(encoder.state_dict(), str(init_model_path)+"/pytorch_model.bin")
+            print("Save Done")
+            encoder = BertForMaskedLM.from_pretrained(init_model_path, config=plmconfig)
+        
+        elif 't5' in model_name :
+            from model.modeling_t5 import T5ForConditionalGeneration
+            encoder = T5ForConditionalGeneration.from_pretrained(model, config=plmconfig)
+
+            os.mkdir(init_model_path)
+            torch.save(encoder.state_dict(), str(init_model_path)+"/pytorch_model.bin")
+            print("Save Done")
+
+            encoder = T5ForConditionalGeneration.from_pretrained(init_model_path, config=plmconfig)
+
+        
+        else:
+            exit()
+    if config.getint('distributed','local_rank') <= 0:
+        if target_model :
+            print("load target model = <{}> for distance compute.".format(model))
+        else :
+            print("load source model = <{}> for distance compute.".format(model))
+            
+    return encoder
+    ##############

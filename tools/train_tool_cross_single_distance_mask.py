@@ -1,5 +1,4 @@
-#1e-3 distance mask lambda 0.1 pl loss
-
+#distance mask 1e4 lam1
 import logging
 import os
 import torch
@@ -72,7 +71,6 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     
     # <select projector> 
     projector = config.get("projector","projector")
-
     if 'AE_1' in projector:
         if config.getboolean("projector","flatten") : 
             dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
@@ -92,8 +90,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             else:
                 dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
                 model_AE = AE_1_layer(dim_0 = dim_0, dim_1 = dim_1, dim_2 = dim_2).to("cuda")
-            
-     # elif projector == "AE_0":
+    
+    # elif projector == "AE_0":
         # model_AE = AE_0_layer(dim_0=dim_0,dim_1=dim_1).to(device)
     
     else:
@@ -141,12 +139,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     else:    
         pass
     
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.01, weight_decay=0.0, correct_bias=True)
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
-    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-4, weight_decay=0.0, correct_bias=True)
-    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-3, weight_decay=0.0, correct_bias=True)
-
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.005, weight_decay=0.0, correct_bias=True)
+    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-4, weight_decay=0.0, correct_bias=True)
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -166,22 +160,20 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
     exp_lr_scheduler.step(trained_epoch)
     
+    
     source_encoder = load_model(config,target_model=False).to("cuda")
     target_encoder = load_model(config,target_model=True).to("cuda")
-    
         
     for epoch_num in range(trained_epoch, epoch):
         
         
         # dataset, parameters["valid_dataset"] = init_dataset(config, **params) #왜 2번하는지..?
         
-        total_len = min([len(dataloader) for dataloader in parameters['train_dataset']])
-        dataloader_1, dataloader_2 = parameters['train_dataset']
-        datasloader_zipped = zip(dataloader_1,dataloader_2)
+        total_len = len(parameters['train_dataset'])
+        dataloader= parameters['train_dataset']
         
         #for shuffle
-        for dataloader in (dataloader_1,dataloader_2):
-            dataloader.sampler.set_epoch(epoch_num)
+        dataloader.sampler.set_epoch(epoch_num)
             
         # datasets_zipped = zip(parameters['train_dataset'])
         if local_rank <=0:
@@ -207,84 +199,91 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         MTLoss = 0
         lossList = len(parameters['train_dataset'])*[0]
         totallossList = len(parameters['train_dataset'])*[0]
-
+        
         output_info = ""
         step = -1
         
         distanceList = len(parameters['train_dataset'])*[0]
         totaldistanceList = len(parameters['train_dataset'])*[0]
-        # distance_loss = torch.nn.MSELoss()
-        # distance_loss = torch.nn.PairwiseDistance()
+        
         distance_loss = torch.nn.CosineSimilarity(dim=2)
+        # distance_loss = torch.nn.PairwiseDistance()
+        
         total_distance = 0                     
         
-        
         #각 batch 에 대하여 
-        for step, (dataloader_1, dataloader_2) in enumerate(datasloader_zipped):
+        for step, (source_dataset,target_dataset) in enumerate(dataloader):
             # tensor to cuda
-            for dataloader in (dataloader_1, dataloader_2): #datas = [source,target]
-                for dataset in dataloader:
-                    for key in dataset.keys():
-                        if isinstance(dataset[key], torch.Tensor):
-                            if len(gpu_list) > 0:
-                                dataset[key] = Variable(dataset[key].cuda())
-                            else:
-                                dataset[key] = Variable(dataset[key])
+            for dataset in (source_dataset,target_dataset):
                 
+                for key in dataset.keys():
+                
+                    if isinstance(dataset[key], torch.Tensor):
+                        if len(gpu_list) > 0:
+                            dataset[key] = Variable(dataset[key].cuda())
+                        else:
+                            dataset[key] = Variable(dataset[key])
+                    
             
             model_AE.zero_grad() 
             
             if "T5" in config.get("target_model","model_base"):
-                for idx,(source_dataset,target_dataset) in enumerate([dataloader_1,dataloader_2]):
+                for idx,(source_dataset,target_dataset) in enumerate([[source_dataset,target_dataset]]):
                     results = model(target_dataset, config, gpu_list, acc_result, "train", args=params, step=step, performance=performance, AE=model_AE)
                     loss, performance = results["loss"], results["performance"]
                     lossList[idx] = loss
                     
             else:
-                for idx,(source_dataset,target_dataset) in enumerate([dataloader_1,dataloader_2]):
+                for idx,(source_dataset,target_dataset) in enumerate([[source_dataset,target_dataset]]):
                     results = model(target_dataset, config, gpu_list, acc_result, "train", AE=model_AE)
                     loss, acc_result = results["loss"], results["acc_result"]
+                    
                     lossList[idx] = loss
+                    
                     
                     assert config.getboolean('projector','flatten') == False
                     
-                    with torch.no_grad():
-                        source_embedding = source_encoder.bert.embeddings(input_ids = source_dataset['inputx'][:,100:],attention_mask=source_dataset['mask'][:,100:])                        
-                        source_mask = source_dataset['mask'].unsqueeze(2).expand(source_dataset['inputx'].size(0),source_dataset['inputx'].size(1),source_embedding.size(2))[:,100:,:]
-                        source_masked_embedding = source_mask * source_embedding
+                    # # 16*231*768 
+                    
+                    # with torch.no_grad():
+                    #     source_embedding = source_encoder.bert.embeddings(input_ids = source_dataset['inputx'][:,100:],attention_mask=source_dataset['mask'][:,100:])                        
+                    #     source_mask = source_dataset['mask'].unsqueeze(2).expand(source_dataset['inputx'].size(0),source_dataset['inputx'].size(1),source_embedding.size(2))[:,100:,:]
+                    #     source_masked_embedding = source_mask * source_embedding
                         
                     
-                        target_embedding = target_encoder.roberta.embeddings(input_ids = target_dataset['inputx'][:,100:],attention_mask=target_dataset['mask'][:,100:])
-                        target_mask = target_dataset['mask'].unsqueeze(2).expand(target_dataset['inputx'].size(0),target_dataset['inputx'].size(1),target_embedding.size(2))[:,100:,:]
-                        target_masked_embedding = target_mask * target_embedding
+                    #     target_embedding = target_encoder.roberta.embeddings(input_ids = target_dataset['inputx'][:,100:],attention_mask=target_dataset['mask'][:,100:])
+                    #     target_mask = target_dataset['mask'].unsqueeze(2).expand(target_dataset['inputx'].size(0),target_dataset['inputx'].size(1),target_embedding.size(2))[:,100:,:]
+                    #     target_masked_embedding = target_mask * target_embedding
                         
-                    if config.getboolean('projector','flatten'):
-                        source_module = source_masked_embedding @ torch.transpose(source_masked_embedding,1,2)
-                        target_module = target_masked_embedding @ torch.transpose(target_masked_embedding,1,2)
-                        lambda_ = 1e-5
-                        distance = torch.norm(source_module-target_module,p='fro')*lambda_
-                        # print(source_module.size())
+                        
+                    # if config.getboolean('projector','flatten'):
+                    #     source_module = source_masked_embedding @ torch.transpose(source_masked_embedding,1,2)
+                    #     target_module = target_masked_embedding @ torch.transpose(target_masked_embedding,1,2)
+                    #     lambda_ = 1e-5
+                    #     distance = torch.norm(source_module-target_module,p='fro')*lambda_
+                    #     # print(source_module.size())
                     
-                    else :
-                        source_module = model_AE(source_masked_embedding)
-                        target_module = target_masked_embedding
-                        lambda_ = 1
+                    # else :
+                    #     source_module = model_AE(source_masked_embedding)
+                    #     target_module = target_masked_embedding
+                    #     # source_module = model_AE(source_embedding)
+                    #     # target_module = target_embedding
+                    #     lambda_ = 0.1
+                    #     distance = torch.mean(1-distance_loss(source_module,target_module))*lambda_
                         
-                        distance = distance_loss(source_module,target_module)
-                        distance = torch.mean(1-distance)*lambda_
-                        
-                        # distance = distance_loss(source_module,target_module)
-                        # distance = torch.mean(distance)*lambda_
+                    #     # distance = distance_loss(source_module,target_module)
+                    #     # distance = torch.mean(distance)*lambda_
                         
                         
-                    distanceList[idx] = distance
-            
-            
-                    totallossList[idx] += loss
-                    totaldistanceList[idx] += distance
+                    # distanceList[idx] = distance
+                    # totallossList[idx] += loss
+                    # totaldistanceList[idx] += distance
                     
-            MTLoss = sum(lossList) + sum(distanceList)
+                    
+            MTLoss = sum(lossList) #+ sum(distanceList)
+            # MTLoss = sum(distanceList)
             total_loss += float(MTLoss)
+            
             
             MTLoss.backward()
             optimizer_AE.step()
@@ -350,7 +349,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                 valid_epoch_loss_list = len(parameters['valid_dataset'])*[0]
                 acc_result_eval_epoch = {'total': 0, 'right': 0}
                 acc_result_eval_list = len(parameters['valid_dataset'])*[None]
-                
+                    
                 if "T5" in config.get("target_model","model_base"):
                     for idx,valid_dataset in enumerate(parameters['valid_dataset']):
                         acc_result_eval = valid(model, valid_dataset, current_epoch, writer, config, gpu_list, output_function, AE=model_AE)
@@ -385,6 +384,9 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         
         
         if local_rank <=0 and not "T5" in config.get("target_model","model_base"):            
+            # print(source_embedding)
+            # print(target_embedding)
+            # float(sum(distanceList))
             
             if config.get("train","source_model"):
                 json_path = "result/" + config.get("data","train_dataset_type").replace(',','_') + '_' + config.get("train","source_model")+'_'+config.get("target_model","model_base") + config.get("target_model","model_size")
@@ -397,18 +399,20 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             elif os.path.exists(json_path):
                 with open(json_path,'r',encoding='utf-8') as file:
                     train_valid_info = json.load(file)
-                    
+
             #each epoch average loss
             train_valid_info["train_average_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
             train_valid_info["valid_average_loss"][current_epoch] = round(float(valid_total_loss),6)
             
-            #each epoch sample loss
+            
+            #each epoch loss
             train_valid_info["train_epoch_loss"][current_epoch] = round(float(train_total_loss) / (step + 1),6)
             train_valid_info["valid_epoch_loss"][current_epoch] = round(float(sum(valid_epoch_loss_list)) ,4)
             train_valid_info["distance_epoch_loss"][current_epoch] = round(float(sum(totaldistanceList)/ (step + 1)),6)
+
             
             
-            #each epoch sample acc
+            #each epoch acc
             train_valid_info["train_epoch_acc"][current_epoch] = round(float(acc_result['right']/acc_result['total']),4)
             train_valid_info["valid_epoch_acc"][current_epoch] = round(float(acc_result_eval_epoch['right']/acc_result_eval_epoch['total']),4)
             
@@ -418,7 +422,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
             
             for idx,data in enumerate(train_data_list):
                 train_loss = data + "_train_loss"
-                train_valid_info[train_loss][current_epoch] = round(float(totallossList[idx]/(step+1)),4)
+                train_valid_info[train_loss][current_epoch] = round(float(lossList[idx]),4)
                 
             for idx,data in enumerate(valid_data_list):    
                 valid_loss = data + "_valid_loss"

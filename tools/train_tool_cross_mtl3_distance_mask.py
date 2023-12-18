@@ -1,4 +1,4 @@
-#1e-4 distance_mask
+#1e-3 distance_mask lam 1
 
 import logging
 import os
@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.optim as optim
 #from model.optimizer import init_optimizer #저자주석
 import transformers
-from tools.projector import AE_0_layer, AE_1_layer_mutiple_100, AE_1_layer, AE_1_layer_mutiple_100_paper,AE_transformer_layer,AE_1_layer_tokenwise
+from tools.projector import AE_0_layer, AE_1_layer_mutiple_100, AE_1_layer, AE_1_layer_mutiple_100_paper,AE_transformer_layer,AE_1_layer_tokenwise,AE_auto_layer
 
 from model.modelling_roberta import RobertaEmbeddings
 from model.modelling_bert import BertEmbeddings
@@ -72,16 +72,26 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     
     # <select projector> 
     projector = config.get("projector","projector")
-    dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
-    
-    if projector == 'AE_1':
+    if 'AE_1' in projector:
         if config.getboolean("projector","flatten") : 
+            dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
             model_AE = AE_1_layer_mutiple_100(dim_0=dim_0,dim_1=dim_1,dim_2=dim_2).to(device)
+            
         else :
-            model_AE = AE_1_layer(dim_0=dim_0,dim_1=dim_1,dim_2=dim_2).to(device)
-    
-    # elif projector == "AE_0":
-        # model_AE = AE_0_layer(dim_0=dim_0,dim_1=dim_1).to(device)
+            
+            if 'auto' in projector:
+                    values = list(map(int,config.get('projector','dims').strip().split(',')))
+                    keys = ["dim_"+str(idx) for idx in range(len(values))]
+                    dims = dict(zip(keys,values))
+                    model_AE = AE_auto_layer(**dims).to("cuda")
+
+            elif 'transformer' in projector:
+                    dim_0,dim_1= config.getint("projector","dim_0"),config.getint("projector","dim_1")
+                    model_AE = AE_transformer_layer(dim_0=dim_0,dim_1=dim_1).to("cuda")
+            else:
+                dim_0,dim_1,dim_2 = config.getint("projector","dim_0"),config.getint("projector","dim_1"),config.getint("projector","dim_2")
+                model_AE = AE_1_layer(dim_0 = dim_0, dim_1 = dim_1, dim_2 = dim_2).to("cuda")
+            
     
     else:
         logger.warning("Fail to select projector. check tools/projector.py")
@@ -131,7 +141,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.01, weight_decay=0.0, correct_bias=True)
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=0.0001, weight_decay=0.0, correct_bias=True)
     # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-5, weight_decay=0.0, correct_bias=True)
-    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-4, weight_decay=0.0, correct_bias=True)
+    # optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-2, weight_decay=0.0, correct_bias=True)
+    optimizer_AE = transformers.AdamW(model_AE.parameters(), eps=1e-06, lr=1e-3, weight_decay=0.0, correct_bias=True)
     global_step = parameters["global_step"]
     
     output_function = parameters["output_function"]
@@ -199,6 +210,8 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         distanceList = len(parameters['train_dataset'])*[0]
         totaldistanceList = len(parameters['train_dataset'])*[0]
         distance_loss = torch.nn.CosineSimilarity(dim=2)
+        # distance_loss = torch.nn.PairwiseDistance()
+        
         total_distance = 0                     
         
         
@@ -232,15 +245,14 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                     assert config.getboolean('projector','flatten') == False
                     
                     with torch.no_grad():
-                        source_embedding = source_encoder.bert.embeddings(input_ids = source_dataset['inputx'])[:,100:,:]
+                        source_embedding = source_encoder.bert.embeddings(input_ids = source_dataset['inputx'][:,100:],attention_mask=source_dataset['mask'][:,100:])                        
                         source_mask = source_dataset['mask'].unsqueeze(2).expand(source_dataset['inputx'].size(0),source_dataset['inputx'].size(1),source_embedding.size(2))[:,100:,:]
                         source_masked_embedding = source_mask * source_embedding
                         
                     
-                        target_embedding = target_encoder.roberta.embeddings(input_ids = target_dataset['inputx'])[:,100:,:]
+                        target_embedding = target_encoder.roberta.embeddings(input_ids = target_dataset['inputx'][:,100:],attention_mask=target_dataset['mask'][:,100:])
                         target_mask = target_dataset['mask'].unsqueeze(2).expand(target_dataset['inputx'].size(0),target_dataset['inputx'].size(1),target_embedding.size(2))[:,100:,:]
                         target_masked_embedding = target_mask * target_embedding
-                        
                         
                     if config.getboolean('projector','flatten'):
                         source_module = source_masked_embedding @ torch.transpose(source_masked_embedding,1,2)
@@ -253,12 +265,15 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
                         source_module = model_AE(source_masked_embedding)
                         target_module = target_masked_embedding
                         lambda_ = 1
-                        distance = torch.mean(1-distance_loss(source_module,target_module))*lambda_
+                        
+                        distance = distance_loss(source_module,target_module)
+                        distance = torch.mean(1-distance)*lambda_
+                        
+                        
+                        # distance = torch.mean(1-distance_loss(source_module,target_module))*lambda_
                         
                     distanceList[idx] = distance
             
-            # MTLoss = sum(lossList) + sum(distanceList)
-          
                     totallossList[idx] += loss
                     totaldistanceList[idx] += distance
                     
