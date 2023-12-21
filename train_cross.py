@@ -12,6 +12,7 @@ from tools.train_tool_cross_single import train as train_single
 from tools.train_tool_cross_mtl2 import train as train_mtl2
 from tools.train_tool_cross_mtl3 import train as train_mtl3
 from tools.train_tool_cross_mtl4 import train as train_mtl4
+from tools.train_tool_cross_mtl import train as train
 
 #log 파일의 형식을 설정 
 # format='%(asctime)s - %(levelname)s - %(name)s - %(message)s - %(lineno)d'
@@ -136,15 +137,15 @@ if __name__ == "__main__":
     
     train_dataset_list = config.get("data","train_dataset_type").lower().split(',')
     
-    if len(train_dataset_list) == 1:
-        train_single(parameters, config, gpu_list, do_test,local_rank, args=args)
-    elif len(train_dataset_list) == 2:
-        train_mtl2(parameters, config, gpu_list, do_test,local_rank, args=args)
-    elif len(train_dataset_list) == 3:
-        train_mtl3(parameters, config, gpu_list, do_test,local_rank, args=args)
-    elif len(train_dataset_list) == 4:
-        train_mtl4(parameters, config, gpu_list, do_test,local_rank, args=args)
-    else :
-        logger.warning("can not find train_tool!")
+    # if len(train_dataset_list) == 1:
+    #     train_single(parameters, config, gpu_list, do_test,local_rank, args=args)
+    # elif len(train_dataset_list) == 2:
+    #     train_mtl2(parameters, config, gpu_list, do_test,local_rank, args=args)
+    # elif len(train_dataset_list) == 3:
+    #     train_mtl3(parameters, config, gpu_list, do_test,local_rank, args=args)
+    # elif len(train_dataset_list) == 4:
+    #     train_mtl4(parameters, config, gpu_list, do_test,local_rank, args=args)
+    # else :
+    #     logger.warning("can not find train_tool!")
 
-    
+    train(parameters, config, gpu_list, do_test,local_rank, args=args)

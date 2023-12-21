@@ -18,6 +18,7 @@ class ConfigParser:
             self.local_config.read("config/default.config", encoding=encoding)
 
         self.default_config.read("config/default.config", encoding=encoding)
+        
         self.config.read(filenames, encoding=encoding)
 
 def _build_func(func_name):

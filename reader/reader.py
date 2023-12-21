@@ -123,10 +123,13 @@ def init_dataset(config, *args, **params):
     
     train_dataset_list = config.get("data","train_dataset_type").lower().split(',')
     
-    if len(train_dataset_list) >= 2 :
-        train_dataset = [init_one_dataset(config,"train",one_data_name,*args, **params) for one_data_name in train_dataset_list]
-    else :
-        train_dataset = init_one_dataset(config,"train",config.get("data","train_dataset_type"),*args, **params)
+    # if len(train_dataset_list) >= 2 :
+    #     train_dataset = [init_one_dataset(config,"train",one_data_name,*args, **params) for one_data_name in train_dataset_list]
+    # else :
+    #     train_dataset = init_one_dataset(config,"train",config.get("data","train_dataset_type"),*args, **params)
+    
+    train_dataset = [init_one_dataset(config,"train",one_data_name,*args, **params) for one_data_name in train_dataset_list]
+    
     
     if local_rank <= 0:
         logger.info("train data loader is setted!")

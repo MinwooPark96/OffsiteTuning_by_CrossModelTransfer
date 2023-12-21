@@ -178,6 +178,7 @@ def train(parameters, config, gpu_list, do_test=False, local_rank=-1, **params):
         #for shuffle
         for dataloader in dataloader_list:
             if len(dataloader_list) != 1:
+                print(len(dataloader_list),dataloader_list)
                 dataloader.sampler.set_epoch(epoch_num)
         
         dataloader_zipped = zip(*dataloader_list)
